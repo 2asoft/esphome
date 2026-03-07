@@ -1,10 +1,12 @@
-# Async TCP client support for all platforms
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.core import CORE, CoroPriority, coroutine_with_priority
 
 CODEOWNERS = ["@esphome/core"]
 DEPENDENCIES = ["network"]
+ESP_ASYNC_TCP_REPOSITORY = (
+    "https://github.com/2asoft/ESPAsyncTCP.git#aasoft/esp8266-mqtt-tls-esp32async"
+)
 
 
 def AUTO_LOAD() -> list[str]:
@@ -35,8 +37,11 @@ async def to_code(config):
         # https://github.com/ESP32Async/AsyncTCP
         cg.add_library("ESP32Async/AsyncTCP", "3.4.5")
     elif CORE.is_esp8266:
-        # https://github.com/ESP32Async/ESPAsyncTCP
-        cg.add_library("ESP32Async/ESPAsyncTCP", "2.0.0")
+        cg.add_library(
+            "ESPAsyncTCP",
+            None,
+            ESP_ASYNC_TCP_REPOSITORY,
+        )
     elif CORE.is_rp2040:
         # https://github.com/ayushsharma82/RPAsyncTCP
         # RPAsyncTCP is a drop-in replacement for AsyncTCP_RP2040W with better

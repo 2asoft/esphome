@@ -1,3 +1,5 @@
+import re
+
 from esphome import automation
 from esphome.automation import Condition
 import esphome.codegen as cg
@@ -44,6 +46,7 @@ from esphome.const import (
     CONF_RETAIN,
     CONF_SHUTDOWN_MESSAGE,
     CONF_SKIP_CERT_CN_CHECK,
+    CONF_SSL_FINGERPRINTS,
     CONF_STATE_TOPIC,
     CONF_SUBSCRIBE_QOS,
     CONF_TOPIC,
@@ -62,6 +65,9 @@ from esphome.core import CORE, CoroPriority, coroutine_with_priority
 from esphome.types import ConfigType
 
 DEPENDENCIES = ["network"]
+ASYNC_MQTT_CLIENT_REPOSITORY = (
+    "https://github.com/2asoft/async-mqtt-client.git#aasoft/esp8266-mqtt-tls"
+)
 
 
 def AUTO_LOAD():
@@ -225,6 +231,20 @@ def _consume_mqtt_sockets(config: ConfigType) -> ConfigType:
     return config
 
 
+def validate_fingerprint(value):
+    value = cv.string(value)
+    if re.match(r"^[0-9a-f]{40}$", value) is None:
+        raise cv.Invalid("fingerprint must be valid SHA1 hash")
+    return value
+
+
+def validate_ssl_fingerprints(value):
+    fingerprints = cv.ensure_list(validate_fingerprint)(value)
+    if len(fingerprints) != 1:
+        raise cv.Invalid("ESP8266 MQTT TLS supports exactly one fingerprint")
+    return fingerprints
+
+
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
@@ -280,6 +300,9 @@ CONFIG_SCHEMA = cv.All(
                     }
                 ),
                 validate_message_just_topic,
+            ),
+            cv.Optional(CONF_SSL_FINGERPRINTS): cv.All(
+                cv.only_on_esp8266, validate_ssl_fingerprints
             ),
             cv.Optional(CONF_KEEPALIVE, default="15s"): cv.positive_time_period_seconds,
             cv.Optional(
@@ -343,8 +366,15 @@ async def to_code(config):
 
     # Add required libraries for ESP8266 and LibreTiny
     if CORE.is_esp8266 or CORE.is_libretiny:
-        # https://github.com/heman/async-mqtt-client/blob/master/library.json
-        cg.add_library("heman/AsyncMqttClient-esphome", "2.0.0")
+        if CORE.is_esp8266:
+            cg.add_library(
+                "AsyncMqttClient-esphome",
+                None,
+                ASYNC_MQTT_CLIENT_REPOSITORY,
+            )
+        else:
+            # https://github.com/heman/async-mqtt-client/blob/master/library.json
+            cg.add_library("heman/AsyncMqttClient-esphome", "2.0.0")
 
     # MQTT on ESP32 uses wake_loop_threadsafe() to wake the main loop from the MQTT event handler
     # This enables low-latency MQTT event processing instead of waiting for select() timeout
@@ -450,6 +480,14 @@ async def to_code(config):
     if CONF_IDF_SEND_ASYNC in config and config[CONF_IDF_SEND_ASYNC]:
         cg.add_define("USE_MQTT_IDF_ENQUEUE")
     # end esp-idf
+
+    if CONF_SSL_FINGERPRINTS in config:
+        for fingerprint in config[CONF_SSL_FINGERPRINTS]:
+            arr = [
+                cg.RawExpression(f"0x{fingerprint[i : i + 2]}") for i in range(0, 40, 2)
+            ]
+            cg.add(var.add_ssl_fingerprint(arr))
+        cg.add_build_flag("-DASYNC_TCP_SSL_ENABLED=1")
 
     for conf in config.get(CONF_ON_MESSAGE, []):
         trig = cg.new_Pvariable(conf[CONF_TRIGGER_ID], conf[CONF_TOPIC])
