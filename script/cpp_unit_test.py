@@ -12,6 +12,7 @@ from esphome.__main__ import command_compile, parse_args
 from esphome.config import validate_config
 from esphome.core import CORE
 from esphome.platformio_api import get_idedata
+from esphome.yaml_util import load_yaml
 
 # This must coincide with the version in /platformio.ini
 PLATFORMIO_GOOGLE_TEST_LIB = "google/googletest@^1.15.2"
@@ -42,6 +43,30 @@ def filter_components_without_tests(components: list[str]) -> list[str]:
                 file=sys.stderr,
             )
     return filtered_components
+
+
+CPP_TEST_CONFIG_FILE = "cpp_test.yaml"
+
+
+def load_component_test_configs(components: list[str]) -> dict:
+    merged: dict = {}
+    for component in components:
+        config_file = COMPONENTS_TESTS_DIR / component / CPP_TEST_CONFIG_FILE
+        if not config_file.exists():
+            continue
+        component_config = load_yaml(config_file)
+        if not component_config:
+            continue
+        for key, value in component_config.items():
+            if (
+                key in merged
+                and isinstance(merged[key], list)
+                and isinstance(value, list)
+            ):
+                merged[key].extend(value)
+            else:
+                merged[key] = value
+    return merged
 
 
 def create_test_config(config_name: str, includes: list[str]) -> dict:
@@ -113,6 +138,8 @@ def run_tests(selected_components: list[str]) -> int:
     config_name: str = "cpptests-" + hash_components(components)
 
     config = create_test_config(config_name, includes)
+    extra_config = load_component_test_configs(components)
+    config.update(extra_config)
 
     CORE.config_path = COMPONENTS_TESTS_DIR / "dummy.yaml"
     CORE.dashboard = None
@@ -122,7 +149,8 @@ def run_tests(selected_components: list[str]) -> int:
 
     # Add all components and dependencies to the base configuration after validation, so their files
     # are added to the build.
-    config.update({key: {} for key in components_with_dependencies})
+    for key in components_with_dependencies:
+        config.setdefault(key, {})
 
     print(f"Testing components: {', '.join(components)}")
     CORE.config = config
