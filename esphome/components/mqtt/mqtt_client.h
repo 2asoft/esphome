@@ -20,6 +20,7 @@
 #elif defined(USE_LIBRETINY)
 #include "mqtt_backend_libretiny.h"
 #endif
+#include "mqtt_post_connect_state.h"
 #include "lwip/ip_addr.h"
 
 #include <array>
@@ -277,7 +278,7 @@ class MQTTClientComponent : public Component
   void set_wait_for_connection(bool wait_for_connection) { this->wait_for_connection_ = wait_for_connection; }
 
  protected:
-  void send_device_info_();
+  bool send_device_info_();
 
   /// Reconnect to the MQTT broker if not already connected.
   void start_connect_();
@@ -293,6 +294,8 @@ class MQTTClientComponent : public Component
   void recalculate_availability_();
 
   bool subscribe_(const char *topic, uint8_t qos);
+  bool all_subscriptions_ready_() const;
+  void process_post_connect_();
   void resubscribe_subscription_(MQTTSubscription *sub);
   void resubscribe_subscriptions_();
 
@@ -345,6 +348,7 @@ class MQTTClientComponent : public Component
 
   bool publish_nan_as_none_{false};
   bool wait_for_connection_{false};
+  MQTTPostConnectState post_connect_state_{};
 };
 
 extern MQTTClientComponent *global_mqtt_client;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)

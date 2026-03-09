@@ -60,6 +60,7 @@ void MQTTClientComponent::setup() {
     if (this->state_ == MQTT_CLIENT_DISABLED)
       return;
     this->state_ = MQTT_CLIENT_DISCONNECTED;
+    this->post_connect_state_.reset();
     this->disconnect_reason_ = reason;
   });
 #ifdef USE_LOGGER
@@ -87,9 +88,9 @@ void MQTTClientComponent::setup() {
   }
 }
 
-void MQTTClientComponent::send_device_info_() {
+bool MQTTClientComponent::send_device_info_() {
   if (!this->is_connected() or !this->is_discovery_ip_enabled()) {
-    return;
+    return false;
   }
   // Format topic on stack to avoid heap allocation
   // "esphome/discover/" (17) + name (ESPHOME_DEVICE_NAME_MAX_LEN) + null (1)
@@ -98,7 +99,7 @@ void MQTTClientComponent::send_device_info_() {
   buf_append_printf(topic, sizeof(topic), 0, "esphome/discover/%s", App.get_name().c_str());
 
   // NOLINTBEGIN(clang-analyzer-cplusplus.NewDeleteLeaks) false positive with ArduinoJson
-  this->publish_json(
+  return this->publish_json(
       topic,
       [](JsonObject root) {
         uint8_t index = 0;
@@ -217,6 +218,7 @@ void MQTTClientComponent::start_dnslookup_() {
     subscription.resubscribe_timeout = 0;
   }
 
+  this->post_connect_state_.reset();
   this->status_set_warning();
   this->dns_resolve_error_ = false;
   this->dns_resolved_ = false;
@@ -337,14 +339,7 @@ void MQTTClientComponent::check_connected() {
   this->sent_birth_message_ = false;
   this->status_clear_warning();
   ESP_LOGI(TAG, "Connected");
-  // MQTT Client needs some time to be fully set up.
-  delay(100);  // NOLINT
-
-  this->resubscribe_subscriptions_();
-  this->send_device_info_();
-
-  for (MQTTComponent *component : this->children_)
-    component->schedule_resend_state();
+  this->post_connect_state_.begin(this->is_discovery_ip_enabled());
 }
 
 void MQTTClientComponent::loop() {
@@ -389,6 +384,7 @@ void MQTTClientComponent::loop() {
 
         this->last_connected_ = now;
         this->resubscribe_subscriptions_();
+        this->process_post_connect_();
 
         // Process pending resends for all MQTT components centrally
         // This is more efficient than each component polling in its own loop
@@ -423,6 +419,43 @@ bool MQTTClientComponent::subscribe_(const char *topic, uint8_t qos) {
   }
   return ret != 0;
 }
+
+bool MQTTClientComponent::all_subscriptions_ready_() const {
+  for (const auto &subscription : this->subscriptions_) {
+    if (!subscription.subscribed) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void MQTTClientComponent::process_post_connect_() {
+  while (true) {
+    switch (this->post_connect_state_.step()) {
+      case MQTTPostConnectStep::IDLE:
+        return;
+      case MQTTPostConnectStep::WAIT_FOR_SUBSCRIPTIONS:
+        if (!this->all_subscriptions_ready_()) {
+          return;
+        }
+        this->post_connect_state_.mark_subscriptions_ready();
+        continue;
+      case MQTTPostConnectStep::SEND_DEVICE_INFO:
+        if (!this->send_device_info_()) {
+          return;
+        }
+        this->post_connect_state_.mark_device_info_sent();
+        continue;
+      case MQTTPostConnectStep::SCHEDULE_RESENDS:
+        for (MQTTComponent *component : this->children_) {
+          component->schedule_resend_state();
+        }
+        this->post_connect_state_.mark_resends_scheduled();
+        return;
+    }
+  }
+}
+
 void MQTTClientComponent::resubscribe_subscription_(MQTTSubscription *sub) {
   if (sub->subscribed)
     return;
