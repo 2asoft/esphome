@@ -98,6 +98,13 @@ enum MQTTClientState {
   MQTT_CLIENT_CONNECTED,
 };
 
+enum MQTTPostConnectPhase {
+  MQTT_POST_CONNECT_IDLE = 0,
+  MQTT_POST_CONNECT_SUBSCRIPTIONS,
+  MQTT_POST_CONNECT_DEVICE_INFO,
+  MQTT_POST_CONNECT_RESENDS,
+};
+
 class MQTTComponent;
 
 class MQTTClientComponent : public Component
@@ -294,7 +301,8 @@ class MQTTClientComponent : public Component
 
   bool subscribe_(const char *topic, uint8_t qos);
   void resubscribe_subscription_(MQTTSubscription *sub);
-  void resubscribe_subscriptions_();
+  bool resubscribe_subscriptions_();
+  void process_post_connect_();
 
   MQTTCredentials credentials_;
   /// The last will message. Disabled optional denotes it being default and
@@ -340,6 +348,8 @@ class MQTTClientComponent : public Component
   uint32_t reboot_timeout_{300000};
   uint32_t connect_begin_;
   uint32_t last_connected_{0};
+  MQTTPostConnectPhase post_connect_phase_{MQTT_POST_CONNECT_IDLE};
+  uint32_t post_connect_last_action_{0};
   optional<MQTTClientDisconnectReason> disconnect_reason_{};
   CallbackManager<MQTTBackend::on_disconnect_callback_t> on_disconnect_;
 

@@ -27,6 +27,7 @@
 namespace esphome::mqtt {
 
 static const char *const TAG = "mqtt";
+static const uint32_t MQTT_POST_CONNECT_INTERVAL_MS = 250;
 
 // Disconnect reason strings indexed by MQTTClientDisconnectReason enum (0-8)
 PROGMEM_STRING_TABLE(MQTTDisconnectReasonStrings, "TCP disconnected", "Unacceptable Protocol Version",
@@ -340,11 +341,11 @@ void MQTTClientComponent::check_connected() {
   // MQTT Client needs some time to be fully set up.
   delay(100);  // NOLINT
 
-  this->resubscribe_subscriptions_();
-  this->send_device_info_();
-
   for (MQTTComponent *component : this->children_)
     component->schedule_resend_state();
+
+  this->post_connect_phase_ = MQTT_POST_CONNECT_SUBSCRIPTIONS;
+  this->post_connect_last_action_ = millis();
 }
 
 void MQTTClientComponent::loop() {
@@ -380,6 +381,7 @@ void MQTTClientComponent::loop() {
     case MQTT_CLIENT_CONNECTED:
       if (!this->mqtt_backend_.connected()) {
         this->state_ = MQTT_CLIENT_DISCONNECTED;
+        this->post_connect_phase_ = MQTT_POST_CONNECT_IDLE;
         ESP_LOGW(TAG, "Lost client connection");
         this->start_dnslookup_();
       } else {
@@ -388,13 +390,7 @@ void MQTTClientComponent::loop() {
         }
 
         this->last_connected_ = now;
-        this->resubscribe_subscriptions_();
-
-        // Process pending resends for all MQTT components centrally
-        // This is more efficient than each component polling in its own loop
-        for (MQTTComponent *component : this->children_) {
-          component->process_resend();
-        }
+        this->process_post_connect_();
       }
       break;
   }
@@ -435,9 +431,49 @@ void MQTTClientComponent::resubscribe_subscription_(MQTTSubscription *sub) {
     sub->resubscribe_timeout = now;
   }
 }
-void MQTTClientComponent::resubscribe_subscriptions_() {
+bool MQTTClientComponent::resubscribe_subscriptions_() {
   for (auto &subscription : this->subscriptions_) {
+    if (subscription.subscribed) {
+      continue;
+    }
     this->resubscribe_subscription_(&subscription);
+    return true;
+  }
+  return false;
+}
+
+void MQTTClientComponent::process_post_connect_() {
+  if (millis() - this->post_connect_last_action_ < MQTT_POST_CONNECT_INTERVAL_MS) {
+    return;
+  }
+
+  switch (this->post_connect_phase_) {
+    case MQTT_POST_CONNECT_IDLE:
+      return;
+    case MQTT_POST_CONNECT_SUBSCRIPTIONS:
+      if (this->resubscribe_subscriptions_()) {
+        this->post_connect_last_action_ = millis();
+        delay(0);
+        return;
+      }
+      this->post_connect_phase_ = MQTT_POST_CONNECT_DEVICE_INFO;
+      [[fallthrough]];
+    case MQTT_POST_CONNECT_DEVICE_INFO:
+      this->send_device_info_();
+      this->post_connect_last_action_ = millis();
+      delay(0);
+      this->post_connect_phase_ = MQTT_POST_CONNECT_RESENDS;
+      return;
+    case MQTT_POST_CONNECT_RESENDS:
+      for (MQTTComponent *component : this->children_) {
+        if (component->process_resend()) {
+          this->post_connect_last_action_ = millis();
+          delay(0);
+          return;
+        }
+      }
+      this->post_connect_phase_ = MQTT_POST_CONNECT_IDLE;
+      return;
   }
 }
 

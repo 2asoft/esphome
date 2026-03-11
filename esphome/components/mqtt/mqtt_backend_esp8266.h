@@ -52,6 +52,7 @@ class MQTTBackendESP8266 final : public MQTTBackend {
   }
 
   bool connected() const final { return mqtt_client_.connected(); }
+  void loop() final { mqtt_client_.loop(); }
   void connect() final { mqtt_client_.connect(); }
   void disconnect() final { mqtt_client_.disconnect(true); }
   bool subscribe(const char *topic, uint8_t qos) final { return mqtt_client_.subscribe(topic, qos) != 0; }

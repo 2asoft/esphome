@@ -21,6 +21,12 @@ struct SendDiscoveryConfig {
   bool command_topic{true};  ///< If the command topic should be included. Default to true.
 };
 
+enum class MQTTResendPhase : uint8_t {
+  NONE = 0,
+  DISCOVERY,
+  STATE,
+};
+
 // Max lengths for stack-based topic building.
 // These limits are enforced at Python config validation time in mqtt/__init__.py
 // using cv.Length() validators for topic_prefix and discovery_prefix.
@@ -150,7 +156,7 @@ class MQTTComponent : public Component {
   void schedule_resend_state();
 
   /// Process pending resend if needed (called by MQTTClientComponent)
-  void process_resend();
+  bool process_resend();
 
   /** Send a MQTT message.
    *
@@ -343,7 +349,7 @@ class MQTTComponent : public Component {
   bool command_retain_ : 1 {false};
   bool retain_ : 1 {true};
   bool discovery_enabled_ : 1 {true};
-  bool resend_state_ : 1 {false};
+  MQTTResendPhase resend_state_{MQTTResendPhase::NONE};
   bool is_internal_ : 1 {false};  ///< Cached result of compute_is_internal_(), set during setup
 
   /// Compute is_internal status based on topics and entity state.

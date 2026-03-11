@@ -7,7 +7,6 @@
 #include "esphome/core/log.h"
 #include "esphome/core/progmem.h"
 #include "esphome/core/version.h"
-
 #include "mqtt_const.h"
 
 namespace esphome::mqtt {
@@ -389,21 +388,24 @@ void MQTTComponent::call_setup() {
   }
 }
 
-void MQTTComponent::process_resend() {
+bool MQTTComponent::process_resend() {
   // Called by MQTTClientComponent when connected to process pending resends
   // Note: is_internal() check not needed - internal components are never registered
-  if (!this->resend_state_)
-    return;
+  if (this->resend_state_ == MQTTResendPhase::NONE)
+    return false;
 
-  this->resend_state_ = false;
-  if (this->is_discovery_enabled()) {
-    if (!this->send_discovery_()) {
-      this->schedule_resend_state();
+  if (this->resend_state_ == MQTTResendPhase::DISCOVERY) {
+    if (this->send_discovery_()) {
+      this->resend_state_ = MQTTResendPhase::STATE;
     }
+    return true;
   }
+
+  this->resend_state_ = MQTTResendPhase::NONE;
   if (!this->send_initial_state()) {
-    this->schedule_resend_state();
+    this->resend_state_ = MQTTResendPhase::STATE;
   }
+  return true;
 }
 void MQTTComponent::call_dump_config() {
   if (this->is_internal())
@@ -411,7 +413,9 @@ void MQTTComponent::call_dump_config() {
 
   this->dump_config();
 }
-void MQTTComponent::schedule_resend_state() { this->resend_state_ = true; }
+void MQTTComponent::schedule_resend_state() {
+  this->resend_state_ = this->is_discovery_enabled() ? MQTTResendPhase::DISCOVERY : MQTTResendPhase::STATE;
+}
 bool MQTTComponent::is_connected_() const { return global_mqtt_client->is_connected(); }
 
 // Pull these properties from EntityBase if not overridden
