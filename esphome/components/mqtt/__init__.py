@@ -232,7 +232,7 @@ def _consume_mqtt_sockets(config: ConfigType) -> ConfigType:
 
 
 def validate_fingerprint(value):
-    value = cv.string(value)
+    value = cv.string(value).lower()
     if re.match(r"^[0-9a-f]{40}$", value) is None:
         raise cv.Invalid("fingerprint must be valid SHA1 hash")
     return value
@@ -259,9 +259,7 @@ CONFIG_SCHEMA = cv.All(
             cv.SplitDefault(CONF_IDF_SEND_ASYNC, esp32=False): cv.All(
                 cv.boolean, cv.only_on_esp32
             ),
-            cv.Optional(CONF_CERTIFICATE_AUTHORITY): cv.All(
-                cv.string, cv.only_on_esp32
-            ),
+            cv.Optional(CONF_CERTIFICATE_AUTHORITY): cv.string,
             cv.Inclusive(CONF_CLIENT_CERTIFICATE, "cert-key-pair"): cv.All(
                 cv.string, cv.only_on_esp32
             ),
@@ -471,14 +469,18 @@ async def to_code(config):
     # esp-idf only
     if CONF_CERTIFICATE_AUTHORITY in config:
         cg.add(var.set_ca_certificate(config[CONF_CERTIFICATE_AUTHORITY]))
-        cg.add(var.set_skip_cert_cn_check(config[CONF_SKIP_CERT_CN_CHECK]))
+        if CORE.is_esp8266:
+            cg.add(var.set_secure(True))
+        if CORE.is_esp32:
+            cg.add(var.set_skip_cert_cn_check(config[CONF_SKIP_CERT_CN_CHECK]))
         if CONF_CLIENT_CERTIFICATE in config:
             cg.add(var.set_cl_certificate(config[CONF_CLIENT_CERTIFICATE]))
             cg.add(var.set_cl_key(config[CONF_CLIENT_CERTIFICATE_KEY]))
 
-        # prevent error -0x428e
-        # See https://github.com/espressif/esp-idf/issues/139
-        add_idf_sdkconfig_option("CONFIG_MBEDTLS_HARDWARE_MPI", False)
+        if CORE.is_esp32:
+            # prevent error -0x428e
+            # See https://github.com/espressif/esp-idf/issues/139
+            add_idf_sdkconfig_option("CONFIG_MBEDTLS_HARDWARE_MPI", False)
 
     if CONF_IDF_SEND_ASYNC in config and config[CONF_IDF_SEND_ASYNC]:
         cg.add_define("USE_MQTT_IDF_ENQUEUE")

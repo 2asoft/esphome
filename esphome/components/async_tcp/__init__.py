@@ -37,6 +37,11 @@ async def to_code(config):
     elif CORE.is_esp8266:
         # https://github.com/esphome-libs/ESPAsyncTCP
         cg.add_library("esphome/ESPAsyncTCP", "2.1.0")
+        cg.add_build_flag("-DASYNC_TCP_SSL_ENABLED=1")
+        cg.add_build_flag("-DASYNC_TCP_SSL_BEARSSL=1")
+        cg.add_build_flag(
+            "-I$PROJECT_PACKAGES_DIR/framework-arduinoespressif8266/libraries/ESP8266WiFi/src"
+        )
     elif CORE.is_rp2040:
         # https://github.com/ayushsharma82/RPAsyncTCP
         # RPAsyncTCP is a drop-in replacement for AsyncTCP_RP2040W with better

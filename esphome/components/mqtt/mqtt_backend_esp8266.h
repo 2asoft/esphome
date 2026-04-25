@@ -21,10 +21,9 @@ class MQTTBackendESP8266 final : public MQTTBackend {
   }
   void set_server(network::IPAddress ip, uint16_t port) final { mqtt_client_.setServer(ip, port); }
   void set_server(const char *host, uint16_t port) final { mqtt_client_.setServer(host, port); }
-#if ASYNC_TCP_SSL_ENABLED
   void set_secure(bool secure) { this->mqtt_client_.setSecure(secure); }
+  void set_ca_certificate(const char *cert) { this->mqtt_client_.setCACert(cert); }
   void add_server_fingerprint(const uint8_t *fingerprint) { this->mqtt_client_.addServerFingerprint(fingerprint); }
-#endif
   void set_on_connect(std::function<on_connect_callback_t> &&callback) final {
     this->mqtt_client_.onConnect(std::move(callback));
   }
